@@ -150,13 +150,18 @@ class Schedule(pydantic.BaseModel):
         move = f" ({self.weekend_solve_mode.value} weekend)" if self.skip_weekend else ""
         return f"Every {frequency}{target}{end}{move}"
 
-    @pydantic.model_validator(mode="after")
-    def validate_end_date(self):
-        if self.end_mode == EndMode.ON_DATE and self.end_date is None:
-            raise ValueError("endDate cannot be 'None' when ")
-        if self.end_date is None:
-            self.end_date = self.start
-        return self
+    @pydantic.validator("end_date", always=True)
+    def validate_end_date(cls, v, values):
+        end_mode = values.get("end_mode")
+        start = values.get("start")
+
+        if end_mode == EndMode.ON_DATE and v is None:
+            raise ValueError("endDate cannot be 'None' when end_mode is 'ON_DATE'")
+
+        if v is None:
+            return start
+
+        return v
 
     def is_approx(self, date: datetime.date, interval: datetime.timedelta = datetime.timedelta(days=2)) -> bool:
         """This function checks if the input date could fit inside of this schedule. It will use the interval as the
