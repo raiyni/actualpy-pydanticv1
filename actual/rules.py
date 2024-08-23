@@ -278,10 +278,10 @@ class Condition(pydantic.BaseModel):
     def get_value(self) -> typing.Union[int, datetime.date, list[str], str, None]:
         return get_value(self.value, self.type)
 
-   @pydantic.validator('value', pre=False, always=True)
+    @pydantic.validator("value", pre=False, always=True)
     def convert_value(cls, v, values):
-        field = values.get('field')
-        options = values.get('options')
+        field = values.get("field")
+        options = values.get("options")
         if field in ("amount_inflow", "amount_outflow") and options is None:
             options = {field.split("_")[1]: True}
             v = abs(v)
@@ -290,20 +290,20 @@ class Condition(pydantic.BaseModel):
             v = int(v * 100)
         return v
 
-    @validator('type', 'value', pre=False, always=True)
+    @validator("type", "value", pre=False, always=True)
     def check_operation_type(cls, v, values, field):
-        if field == 'type' and not v:
-            v = ValueType.from_field(values.get('field'))
-        if field == 'value':
-            op = values.get('op')
-            type_ = values.get('type')
+        if field == "type" and not v:
+            v = ValueType.from_field(values.get("field"))
+        if field == "value":
+            op = values.get("op")
+            type_ = values.get("type")
             if not type_.is_valid(op):
                 raise ValueError(f"Operation {op} not supported for type {type_}")
             if isinstance(v, BaseModel):
                 v = str(v.id)
             elif isinstance(v, list) and len(v) and isinstance(v[0], BaseModel):
                 v = [item.id if hasattr(item, "id") else item for item in v]
-            if not type_.validate(v, values.get('op')):
+            if not type_.validate(v, values.get("op")):
                 raise ValueError(f"Value {v} is not valid for type {type_.name} and operation {values.get('op').name}")
         return v
 
