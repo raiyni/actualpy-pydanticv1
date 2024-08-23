@@ -57,15 +57,26 @@ class BetweenValue(pydantic.BaseModel):
     def __str__(self):
         return f"({self.num_1}, {self.num_2})"
 
-    @pydantic.validator("*", pre=True, always=True)
-    def convert_value(self):
-        if isinstance(self.num_1, float):
-            self.num_1 = int(self.num_1 * 100)
-        if isinstance(self.num_2, float):
-            self.num_2 = int(self.num_2 * 100)
-        # sort the values
-        self.num_1, self.num_2 = sorted((self.num_1, self.num_2))
-        return self
+    @pydantic.validator("num_1", "num_2", pre=True, always=True)
+    def convert_values(cls, v, values, field):
+        """Convert and sort values for num_1 and num_2."""
+        # Convert float to integer representation in cents
+        if isinstance(v, float):
+            v = int(v * 100)
+
+        # Handle the case where this is the first field being processed
+        if field.name == "num_1":
+            values["num_1"] = v
+        elif field.name == "num_2":
+            values["num_2"] = v
+
+        # If both values are processed, sort them
+        if "num_1" in values and "num_2" in values:
+            num_1, num_2 = sorted((values["num_1"], values["num_2"]))
+            values["num_1"] = num_1
+            values["num_2"] = num_2
+
+        return v
 
 
 class ValueType(enum.Enum):
@@ -267,33 +278,34 @@ class Condition(pydantic.BaseModel):
     def get_value(self) -> typing.Union[int, datetime.date, list[str], str, None]:
         return get_value(self.value, self.type)
 
-    @pydantic.validator("*", pre=False, always=True)
-    def convert_value(self):
-        if self.field in ("amount_inflow", "amount_outflow") and self.options is None:
-            self.options = {self.field.split("_")[1]: True}
-            self.value = abs(self.value)
-            self.field = "amount"
-        if isinstance(self.value, float):
-            # convert silently in the background to a valid number
-            self.value = int(self.value * 100)
-        return self
+   @pydantic.validator('value', pre=False, always=True)
+    def convert_value(cls, v, values):
+        field = values.get('field')
+        options = values.get('options')
+        if field in ("amount_inflow", "amount_outflow") and options is None:
+            options = {field.split("_")[1]: True}
+            v = abs(v)
+            field = "amount"
+        if isinstance(v, float):
+            v = int(v * 100)
+        return v
 
-    @pydantic.validator("*", pre=False, always=True)
-    def check_operation_type(self):
-        if not self.type:
-            self.type = ValueType.from_field(self.field)
-        # check if types are fine
-        if not self.type.is_valid(self.op):
-            raise ValueError(f"Operation {self.op} not supported for type {self.type}")
-        # if a pydantic object is provided and id is expected, extract the id
-        if isinstance(self.value, BaseModel):
-            self.value = str(self.value.id)
-        elif isinstance(self.value, list) and len(self.value) and isinstance(self.value[0], pydantic.BaseModel):
-            self.value = [v.id if hasattr(v, "id") else v for v in self.value]
-        # make sure the data matches the value type
-        if not self.type.validate(self.value, self.op):
-            raise ValueError(f"Value {self.value} is not valid for type {self.type.name} and operation {self.op.name}")
-        return self
+    @validator('type', 'value', pre=False, always=True)
+    def check_operation_type(cls, v, values, field):
+        if field == 'type' and not v:
+            v = ValueType.from_field(values.get('field'))
+        if field == 'value':
+            op = values.get('op')
+            type_ = values.get('type')
+            if not type_.is_valid(op):
+                raise ValueError(f"Operation {op} not supported for type {type_}")
+            if isinstance(v, BaseModel):
+                v = str(v.id)
+            elif isinstance(v, list) and len(v) and isinstance(v[0], BaseModel):
+                v = [item.id if hasattr(item, "id") else item for item in v]
+            if not type_.validate(v, values.get('op')):
+                raise ValueError(f"Value {v} is not valid for type {type_.name} and operation {values.get('op').name}")
+        return v
 
     def run(self, transaction: Transactions) -> bool:
         attr = get_attribute_by_table_name(Transactions.__tablename__, self.field)
