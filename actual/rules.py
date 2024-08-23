@@ -259,7 +259,7 @@ class Condition(pydantic.BaseModel):
 
     def as_dict(self):
         """Returns valid dict for database insertion."""
-        ret = self.model_dump(mode="json")
+        ret = self.dict()
         if not self.options:
             ret.pop("options", None)
         return ret
@@ -346,36 +346,32 @@ class Action(pydantic.BaseModel):
 
     def as_dict(self):
         """Returns valid dict for database insertion."""
-        ret = self.model_dump(mode="json")
+        ret = self.dict()
         if not self.options:
             ret.pop("options", None)
         return ret
 
-    @pydantic.model_validator(mode="after")
-    def convert_value(self):
-        if isinstance(self.value, float):
+    @pydantic.validator("value", pre=True, always=True)
+    def convert_value(cls, v, values, **kwargs):
+        if isinstance(v, float):
             # convert silently in the background to a valid number
-            self.value = int(self.value * 100)
-        if self.field in ("cleared",) and self.value in (0, 1):
-            self.value = bool(self.value)
-        return self
+            v = int(v * 100)
+        if values.get("field") in ("cleared",) and v in (0, 1):
+            v = bool(v)
+        return v
 
-    @pydantic.model_validator(mode="after")
-    def check_operation_type(self):
-        if not self.type:
-            if self.field is not None:
-                self.type = ValueType.from_field(self.field)
-            elif self.op == ActionType.LINK_SCHEDULE:
-                self.type = ValueType.ID
-            elif self.op == ActionType.SET_SPLIT_AMOUNT:
-                self.type = ValueType.NUMBER
-        # if a pydantic object is provided and id is expected, extract the id
-        if isinstance(self.value, pydantic.BaseModel) and hasattr(self.value, "id"):
-            self.value = str(self.value.id)
-        # make sure the data matches the value type
-        if not self.type.validate(self.value):
-            raise ValueError(f"Value {self.value} is not valid for type {self.type.name}")
-        return self
+    @pydantic.validator("type", always=True)
+    def check_operation_type(cls, v, values, **kwargs):
+        field = values.get("field")
+        op = values.get("op")
+
+        if v is None:
+            if field is not None:
+                v = ValueType.from_field(field)
+            elif op == ActionType.LINK_SCHEDULE:
+                v = ValueType.ID
+            elif op == ActionType.SET_SPLIT_AMOUNT:
+                v = ValueType.NUMBER
 
     def run(self, transaction: Transactions) -> None:
         if self.op == ActionType.SET:

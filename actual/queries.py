@@ -7,7 +7,7 @@ import typing
 import uuid
 
 import sqlalchemy
-from pydantic import TypeAdapter
+from pydantic import parse_raw_as
 from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.expression import Select
 from sqlmodel import Session, select
@@ -601,8 +601,8 @@ def get_ruleset(s: Session) -> RuleSet:
     """
     rule_set = list()
     for rule in get_rules(s):
-        conditions = TypeAdapter(list[Condition]).validate_json(rule.conditions)
-        actions = TypeAdapter(list[Action]).validate_json(rule.actions)
+        conditions = parse_raw_as(list[Condition], rule.conditions)
+        actions = parse_raw_as(list[Action], rule.actions)
         rs = Rule(conditions=conditions, operation=rule.conditions_op, actions=actions, stage=rule.stage)  # noqa
         rule_set.append(rs)
     return RuleSet(rules=rule_set)
