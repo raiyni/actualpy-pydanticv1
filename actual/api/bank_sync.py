@@ -5,7 +5,7 @@ import decimal
 import enum
 from typing import List, Optional
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import BaseModel, Field
 
 from actual.utils.title import title
 
@@ -70,16 +70,27 @@ class TransactionItem(BaseModel):
     value_date: str = Field(..., alias="valueDate")
     transaction_amount: BankSyncAmount = Field(..., alias="transactionAmount")
     # this field will come as either debtorName or creditorName, depending on if it's a debt or credit
-    payee: str = Field(None, validation_alias=AliasChoices("debtorName", "creditorName"))
-    payee_account: Optional[DebtorAccount] = Field(
-        None, validation_alias=AliasChoices("debtorAccount", "creditorAccount")
-    )
+    payee: Optional[str] = None
+    payee_account: Optional[DebtorAccount] = None
     date: datetime.date
     remittance_information_unstructured: str = Field(None, alias="remittanceInformationUnstructured")
     remittance_information_unstructured_array: list[str] = Field(
         default_factory=list, alias="remittanceInformationUnstructuredArray"
     )
     additional_information: Optional[str] = Field(None, alias="additionalInformation")
+
+    def __init__(self, **data):
+        if "debtorName" in data:
+            data["payee"] = data.pop("debtorName")
+        elif "creditorName" in data:
+            data["payee"] = data.pop("creditorName")
+
+        if "debtorAccount" in data:
+            data["payee_account"] = data.pop("debtorAccount")
+        elif "creditorAccount" in data:
+            data["payee_account"] = data.pop("creditorAccount")
+
+        super().__init__(**data)
 
     @property
     def imported_payee(self):
