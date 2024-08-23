@@ -9,15 +9,13 @@ from actual.schedules import Schedule, date_to_datetime
 
 
 def test_basic_schedules():
-    s = Schedule.model_validate(
-        {
-            "start": "2024-05-12",
-            "frequency": "monthly",
-            "skipWeekend": False,
-            "endMode": "after_n_occurrences",
-            "endOccurrences": 3,
-            "interval": 1,
-        }
+    s = Schedule(
+        start="2024-05-12",
+        frequency="monthly",
+        skipWeekend=False,
+        endMode="after_n_occurrences",
+        endOccurrences=3,
+        interval=1,
     )
     assert s.before(date(2024, 5, 13)) == date(2024, 5, 12)
     assert s.xafter(date(2024, 5, 12), 4) == [
@@ -30,24 +28,22 @@ def test_basic_schedules():
 
 
 def test_complex_schedules():
-    s = Schedule.model_validate(
-        {
-            "start": "2024-05-08",
-            "frequency": "monthly",
-            "patterns": [
-                {"value": -1, "type": "SU"},
-                {"value": 2, "type": "SA"},
-                {"value": 10, "type": "day"},
-                {"value": 31, "type": "day"},
-                {"value": 5, "type": "day"},
-            ],
-            "skipWeekend": True,
-            "weekendSolveMode": "after",
-            "endMode": "never",
-            "endOccurrences": 1,
-            "endDate": "2024-05-08",
-            "interval": 1,
-        }
+    s = Schedule(
+        start="2024-05-08",
+        frequency="monthly",
+        patterns=[
+            {"value": -1, "type": "SU"},
+            {"value": 2, "type": "SA"},
+            {"value": 10, "type": "day"},
+            {"value": 31, "type": "day"},
+            {"value": 5, "type": "day"},
+        ],
+        skipWeekend=True,
+        weekendSolveMode="after",
+        endMode="never",
+        endOccurrences=1,
+        endDate="2024-05-08",
+        interval=1,
     )
     assert s.xafter(date(2024, 5, 10), count=5) == [
         date(2024, 5, 10),
@@ -72,21 +68,19 @@ def test_complex_schedules():
 
 def test_is_approx():
     # create schedule for every 1st and last day of the month (30th or 31st)
-    s = Schedule.model_validate(
-        {
-            "start": "2024-05-10",
-            "frequency": "monthly",
-            "patterns": [
-                {"value": 1, "type": "day"},
-                {"value": -1, "type": "day"},
-            ],
-            "skipWeekend": True,
-            "weekendSolveMode": "after",
-            "endMode": "on_date",
-            "endOccurrences": 1,
-            "endDate": "2024-07-01",
-            "interval": 1,
-        }
+    s = Schedule(
+        start="2024-05-10",
+        frequency="monthly",
+        patterns=[
+            {"value": 1, "type": "day"},
+            {"value": -1, "type": "day"},
+        ],
+        skipWeekend=True,
+        weekendSolveMode="after",
+        endMode="on_date",
+        endOccurrences=1,
+        endDate="2024-07-01",
+        interval=1,
     )
     # make sure the xafter is correct
     assert s.xafter(date(2024, 6, 1), 5) == [
@@ -122,15 +116,13 @@ def test_date_to_datetime():
 def test_exceptions():
     with pytest.raises(ValueError):
         # on_date is set but no date is provided
-        Schedule.model_validate(
-            {
-                "start": "2024-05-12",
-                "frequency": "monthly",
-                "skipWeekend": False,
-                "endMode": "on_date",
-                "endOccurrences": 3,
-                "interval": 1,
-            }
+        Schedule(
+            start="2024-05-12",
+            frequency="monthly",
+            skipWeekend=False,
+            endMode="on_date",
+            endOccurrences=3,
+            interval=1,
         )
 
 
