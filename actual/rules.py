@@ -290,7 +290,7 @@ class Condition(pydantic.BaseModel):
             v = int(v * 100)
         return v
 
-    @validator("type", "value", pre=False, always=True)
+    @pydantic.validator("type", "value", pre=False, always=True)
     def check_operation_type(cls, v, values, field):
         if field == "type" and not v:
             v = ValueType.from_field(values.get("field"))
