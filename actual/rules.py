@@ -57,7 +57,7 @@ class BetweenValue(pydantic.BaseModel):
     def __str__(self):
         return f"({self.num_1}, {self.num_2})"
 
-    @pydantic.model_validator(mode="after")
+    @pydantic.validator("*", pre=True, always=True)
     def convert_value(self):
         if isinstance(self.num_1, float):
             self.num_1 = int(self.num_1 * 100)
@@ -267,7 +267,7 @@ class Condition(pydantic.BaseModel):
     def get_value(self) -> typing.Union[int, datetime.date, list[str], str, None]:
         return get_value(self.value, self.type)
 
-    @pydantic.model_validator(mode="after")
+    @pydantic.validator("*", pre=False, always=True)
     def convert_value(self):
         if self.field in ("amount_inflow", "amount_outflow") and self.options is None:
             self.options = {self.field.split("_")[1]: True}
@@ -278,7 +278,7 @@ class Condition(pydantic.BaseModel):
             self.value = int(self.value * 100)
         return self
 
-    @pydantic.model_validator(mode="after")
+    @pydantic.validator("*", pre=False, always=True)
     def check_operation_type(self):
         if not self.type:
             self.type = ValueType.from_field(self.field)
@@ -413,8 +413,8 @@ class Rule(pydantic.BaseModel):
         None, description="Stage in which the rule" "will be evaluated (default None)"
     )
 
-    @pydantic.model_validator(mode="before")
-    def correct_operation(cls, value):
+    @pydantic.validator("*", pre=True)
+    def correct_operation(cls, value, values):
         """If the user provides the same 'all' or 'any' that the frontend provides, we fix it silently."""
         if value.get("operation") == "all":
             value["operation"] = "and"
