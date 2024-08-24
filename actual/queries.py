@@ -23,6 +23,8 @@ from actual.database import (
     Rules,
     Schedules,
     Transactions,
+    ZeroBudgetMonths,
+    ZeroBudgets,
 )
 from actual.exceptions import ActualError
 from actual.rules import Action, Condition, Rule, RuleSet
@@ -460,6 +462,17 @@ def get_accounts(s: Session, name: str = None, include_deleted: bool = False) ->
     :return: list of accounts with `transactions` already loaded.
     """
     query = base_query(Accounts, name, include_deleted).options(joinedload(Accounts.transactions))
+    return s.exec(query).unique().all()
+
+
+def get_budgets(s: Session) -> typing.Sequence[ZeroBudgets]:
+    """
+    Returns a list of all available ZeroBudgets.
+
+    :param s: session from Actual local database.
+    :return: list of ZeroBudgets
+    """
+    query = select(ZeroBudgets)
     return s.exec(query).unique().all()
 
 
