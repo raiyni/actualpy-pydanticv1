@@ -58,6 +58,7 @@ class ActualServer:
         self._requests_session: requests.Session = requests.Session()
         if cert is not None:
             self._requests_session.verify = cert
+            self.cert = cert
         if token is None and password is None:
             raise ValueError("Either provide a valid token or a password.")
         # already try to log-in if password was provided
@@ -83,12 +84,13 @@ class ActualServer:
         if not password:
             raise AuthorizationError("Trying to login but not password was provided.")
         if method == "password":
-            response = self._requests_session.post(f"{self.api_url}/{Endpoints.LOGIN}", json={"password": password})
+            response = self._requests_session.post(f"{self.api_url}/{Endpoints.LOGIN}", json={"password": password}, verify=self.cert)
         else:
             response = self._requests_session.post(
                 f"{self.api_url}/{Endpoints.LOGIN}",
                 json={"loginMethod": method},
                 headers={"X-ACTUAL-PASSWORD": password},
+                verify=self.cert,
             )
         response_dict = response.json()
         if response.status_code == 400 and "invalid-password" in response.text:
@@ -121,24 +123,24 @@ class ActualServer:
 
     def info(self) -> InfoDTO:
         """Gets the information from the Actual server, like the name and version."""
-        response = self._requests_session.get(f"{self.api_url}/{Endpoints.INFO}")
+        response = self._requests_session.get(f"{self.api_url}/{Endpoints.INFO}", verify=self.cert)
         response.raise_for_status()
         return InfoDTO(**response.json())
 
     def validate(self) -> ValidateDTO:
         """Validates if the user is valid and logged in, and if the token is also valid and bound to a session."""
-        response = self._requests_session.get(f"{self.api_url}/{Endpoints.ACCOUNT_VALIDATE}")
+        response = self._requests_session.get(f"{self.api_url}/{Endpoints.ACCOUNT_VALIDATE}", verify=self.cert)
         response.raise_for_status()
         return ValidateDTO(**response.json())
 
     def needs_bootstrap(self) -> BootstrapInfoDTO:
         """Checks if the Actual needs bootstrap, in other words, if it needs a master password for the server."""
-        response = self._requests_session.get(f"{self.api_url}/{Endpoints.NEEDS_BOOTSTRAP}")
+        response = self._requests_session.get(f"{self.api_url}/{Endpoints.NEEDS_BOOTSTRAP}", verify=self.cert)
         response.raise_for_status()
         return BootstrapInfoDTO(**response.json())
 
     def bootstrap(self, password: str) -> LoginDTO:
-        response = self._requests_session.post(f"{self.api_url}/{Endpoints.BOOTSTRAP}", json={"password": password})
+        response = self._requests_session.post(f"{self.api_url}/{Endpoints.BOOTSTRAP}", json={"password": password}, verify=self.cert)
         response.raise_for_status()
         login_response = LoginDTO(**response.json())
         self._token = login_response.data.token
@@ -146,13 +148,13 @@ class ActualServer:
 
     def data_file_index(self) -> List[str]:
         """Gets all the migration file references for the actual server."""
-        response = self._requests_session.get(f"{self.api_url}/{Endpoints.DATA_FILE_INDEX}")
+        response = self._requests_session.get(f"{self.api_url}/{Endpoints.DATA_FILE_INDEX}", verify=self.cert)
         response.raise_for_status()
         return response.content.decode().splitlines()
 
     def data_file(self, file_path: str) -> bytes:
         """Gets the content of the individual migration file from server."""
-        response = self._requests_session.get(f"{self.api_url}/data/{file_path}")
+        response = self._requests_session.get(f"{self.api_url}/data/{file_path}", verify=self.cert)
         response.raise_for_status()
         return response.content
 
@@ -163,6 +165,7 @@ class ActualServer:
             raise UnknownFileId("Could not reset the file without a valid 'file_id'")
         request = self._requests_session.post(
             f"{self.api_url}/{Endpoints.RESET_USER_FILE}", json={"fileId": file_id, "token": self._token}
+            verify=self.cert,
         )
         request.raise_for_status()
         return StatusDTO(**request.json())
@@ -171,7 +174,7 @@ class ActualServer:
         """Downloads the user file based on the file_id provided. Returns the `bytes` from the response, which is a
         zipped folder of the database `db.sqlite` and the `metadata.json`. If the database is encrypted, the key id
         has to be retrieved additionally using user_get_key()."""
-        db = self._requests_session.get(f"{self.api_url}/{Endpoints.DOWNLOAD_USER_FILE}", headers=self.headers(file_id))
+        db = self._requests_session.get(f"{self.api_url}/{Endpoints.DOWNLOAD_USER_FILE}", headers=self.headers(file_id), verify=self.cert)
         db.raise_for_status()
         return db.content
 
@@ -200,7 +203,7 @@ class ActualServer:
     def list_user_files(self) -> ListUserFilesDTO:
         """Lists the user files. If the response item contains `encrypt_key_id` different from `None`, then the
         file must be decrypted on retrieval."""
-        response = self._requests_session.get(f"{self.api_url}/{Endpoints.LIST_USER_FILES}")
+        response = self._requests_session.get(f"{self.api_url}/{Endpoints.LIST_USER_FILES}", verify=self.cert)
         response.raise_for_status()
         return ListUserFilesDTO(**response.json())
 
@@ -208,6 +211,7 @@ class ActualServer:
         """Gets the user file information, including the encryption metadata."""
         response = self._requests_session.get(
             f"{self.api_url}/{Endpoints.GET_USER_FILE_INFO}", headers=self.headers(file_id)
+            verify=self.cert,
         )
         response.raise_for_status()
         return GetUserFileInfoDTO(**response.json())
@@ -217,6 +221,7 @@ class ActualServer:
         response = self._requests_session.post(
             f"{self.api_url}/{Endpoints.UPDATE_USER_FILE_NAME}",
             json={"fileId": file_id, "name": file_name, "token": self._token},
+            verify=self.cert,
         )
         response.raise_for_status()
         return StatusDTO(**response.json())
@@ -225,6 +230,7 @@ class ActualServer:
         """Deletes the user file that is loaded from the remote server."""
         response = self._requests_session.post(
             f"{self.api_url}/{Endpoints.DELETE_USER_FILE}", json={"fileId": file_id, "token": self._token}
+            verify=self.cert,
         )
         return StatusDTO(**response.json())
 
@@ -237,6 +243,7 @@ class ActualServer:
                 "token": self._token,
             },
             headers=self.headers(file_id),
+            verify=self.cert,
         )
         response.raise_for_status()
         return UserGetKeyDTO(**response.json())
@@ -255,6 +262,7 @@ class ActualServer:
                 "testContent": json.dumps(test_content),
                 "token": self._token,
             },
+            verify=self.cert,
         )
         return StatusDTO(**response.json())
 
@@ -267,6 +275,7 @@ class ActualServer:
             f"{self.api_url}/{Endpoints.SYNC}",
             headers=self.headers(request.fileId, extra_headers={"Content-Type": "application/actual-sync"}),
             data=SyncRequest.serialize(request),
+            verify=self.cert,
         )
         response.raise_for_status()
         parsed_response = SyncResponse.deserialize(response.content)
@@ -274,12 +283,12 @@ class ActualServer:
 
     def bank_sync_status(self, bank_sync: Literal["gocardless", "simplefin"] | str) -> BankSyncStatusDTO:
         endpoint = Endpoints.BANK_SYNC_STATUS.value.format(bank_sync=bank_sync)
-        response = self._requests_session.post(f"{self.api_url}/{endpoint}", json={})
+        response = self._requests_session.post(f"{self.api_url}/{endpoint}", json={}, verify=self.cert)
         return BankSyncStatusDTO(**response.json())
 
     def bank_sync_accounts(self, bank_sync: Literal["gocardless", "simplefin"]) -> BankSyncAccountResponseDTO:
         endpoint = Endpoints.BANK_SYNC_ACCOUNTS.value.format(bank_sync=bank_sync)
-        response = self._requests_session.post(f"{self.api_url}/{endpoint}", json={})
+        response = self._requests_session.post(f"{self.api_url}/{endpoint}", json={}, verify=self.cert)
         return BankSyncAccountResponseDTO(**response.json())
 
     def bank_sync_transactions(
@@ -295,5 +304,5 @@ class ActualServer:
         payload = {"accountId": account_id, "startDate": start_date.strftime("%Y-%m-%d")}
         if requisition_id:
             payload["requisitionId"] = requisition_id
-        response = self._requests_session.post(f"{self.api_url}/{endpoint}", json=payload)
-        return BankSyncTransactionResponseDTO(**response.json())
+        response = self._requests_session.post(f"{self.api_url}/{endpoint}", json=payload, verify=self.cert)
+        return BankSyncResponseDTO(**response.json())
