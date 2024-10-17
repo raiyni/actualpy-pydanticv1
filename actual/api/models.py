@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import enum
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field
 
-from actual.api.bank_sync import BankSyncAccountData, BankSyncTransactionData
+from actual.api.bank_sync import (
+    BankSyncAccountData,
+    BankSyncErrorData,
+    BankSyncTransactionData,
+)
 
 
 class Endpoints(enum.Enum):
@@ -152,9 +156,20 @@ class BankSyncStatusDTO(StatusDTO):
     data: IsConfiguredDTO
 
 
-class BankSyncAccountResponseDTO(StatusDTO):
+class BankSyncAccountDTO(StatusDTO):
     data: BankSyncAccountData
 
 
 class BankSyncTransactionResponseDTO(StatusDTO):
     data: BankSyncTransactionData
+
+
+class BankSyncErrorDTO(StatusDTO):
+    data: BankSyncErrorData
+
+
+class BankSyncAccountResponseDTO(BaseModel):
+    __root__: Union[BankSyncErrorDTO, BankSyncAccountDTO]
+
+class BankSyncResponseDTO(BaseModel):
+    __root__: Union[BankSyncErrorDTO, BankSyncTransactionResponseDTO]

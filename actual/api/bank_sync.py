@@ -74,7 +74,7 @@ class TransactionItem(BaseModel):
     payee_account: Optional[DebtorAccount] = None
     date: datetime.date
     remittance_information_unstructured: str = Field(None, alias="remittanceInformationUnstructured")
-    remittance_information_unstructured_array: list[str] = Field(
+    remittance_information_unstructured_array: List[str] = Field(
         default_factory=list, alias="remittanceInformationUnstructuredArray"
     )
     additional_information: Optional[str] = Field(None, alias="additionalInformation")
@@ -128,3 +128,10 @@ class BankSyncTransactionData(BaseModel):
     # goCardless specific
     iban: Optional[str] = None
     institution_id: Optional[str] = Field(None, alias="institutionId")
+
+
+class BankSyncErrorData(BaseModel):
+    error_type: str
+    error_code: str
+    status: Optional[str] = None
+    reason: Optional[str] = None

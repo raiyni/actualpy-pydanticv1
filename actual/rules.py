@@ -40,12 +40,15 @@ class ConditionType(enum.Enum):
     NOT_ONE_OF = "notOneOf"
     IS_BETWEEN = "isbetween"
     MATCHES = "matches"
+    HAS_TAGS = "hasTags"
 
 
 class ActionType(enum.Enum):
     SET = "set"
     SET_SPLIT_AMOUNT = "set-split-amount"
     LINK_SCHEDULE = "link-schedule"
+    PREPEND_NOTES = "prepend-notes"
+    APPEND_NOTES = "append-notes"
 
 
 class BetweenValue(pydantic.BaseModel):
@@ -85,6 +88,7 @@ class ValueType(enum.Enum):
     STRING = "string"
     NUMBER = "number"
     BOOLEAN = "boolean"
+    IMPORTED_PAYEE = "imported_payee"
 
     def is_valid(self, operation: ConditionType) -> bool:
         """Returns if a conditional operation for a certain type is valid. For example, if the value is of type string,
@@ -92,8 +96,17 @@ class ValueType(enum.Enum):
         greater than defined for strings."""
         if self == ValueType.DATE:
             return operation.value in ("is", "isapprox", "gt", "gte", "lt", "lte")
-        elif self == ValueType.STRING:
-            return operation.value in ("is", "contains", "oneOf", "isNot", "doesNotContain", "notOneOf", "matches")
+        elif self in (ValueType.STRING, ValueType.IMPORTED_PAYEE):
+            return operation.value in (
+                "is",
+                "contains",
+                "oneOf",
+                "isNot",
+                "doesNotContain",
+                "notOneOf",
+                "matches",
+                "hasTags",
+            )
         elif self == ValueType.ID:
             return operation.value in ("is", "isNot", "oneOf", "notOneOf")
         elif self == ValueType.NUMBER:
@@ -102,7 +115,7 @@ class ValueType(enum.Enum):
             # must be BOOLEAN
             return operation.value in ("is",)
 
-    def validate(self, value: typing.Union[int, list[str], str, None], operation: ConditionType = None) -> bool:
+    def validate(self, value: typing.Union[int, typing.List[str], str, None], operation: ConditionType = None) -> bool:
         if isinstance(value, list) and operation in (ConditionType.ONE_OF, ConditionType.NOT_ONE_OF):
             return all(self.validate(v, None) for v in value)
         if value is None:
@@ -110,7 +123,7 @@ class ValueType(enum.Enum):
         if self == ValueType.ID:
             # make sure it's an uuid
             return isinstance(value, str) and is_uuid(value)
-        elif self == ValueType.STRING:
+        elif self in (ValueType.STRING, ValueType.IMPORTED_PAYEE):
             return isinstance(value, str)
         elif self == ValueType.DATE:
             try:
@@ -131,8 +144,10 @@ class ValueType(enum.Enum):
     def from_field(cls, field: str | None) -> ValueType:
         if field in ("acct", "category", "description"):
             return ValueType.ID
-        elif field in ("notes", "imported_description"):
+        elif field in ("notes",):
             return ValueType.STRING
+        elif field in ("imported_description",):
+            return ValueType.IMPORTED_PAYEE
         elif field in ("date",):
             return ValueType.DATE
         elif field in ("cleared", "reconciled"):
@@ -144,8 +159,8 @@ class ValueType(enum.Enum):
 
 
 def get_value(
-    value: typing.Union[int, list[str], str, None], value_type: ValueType
-) -> typing.Union[int, datetime.date, list[str], str, None]:
+    value: typing.Union[int, typing.List[str], str, None], value_type: ValueType
+) -> typing.Union[int, datetime.date, typing.List[str], str, None]:
     """Converts the value to an actual value according to the type."""
     if value_type is ValueType.DATE:
         if isinstance(value, str):
@@ -154,7 +169,7 @@ def get_value(
             return datetime.datetime.strptime(str(value), "%Y%m%d").date()
     elif value_type is ValueType.BOOLEAN:
         return int(value)  # database accepts 0 or 1
-    elif value_type is ValueType.STRING:
+    elif value_type in (ValueType.STRING, ValueType.IMPORTED_PAYEE):
         if isinstance(value, list):
             return [get_value(v, value_type) for v in value]
         else:
@@ -164,8 +179,8 @@ def get_value(
 
 def condition_evaluation(
     op: ConditionType,
-    true_value: typing.Union[int, list[str], str, datetime.date, None],
-    self_value: typing.Union[int, list[str], str, datetime.date, BetweenValue, None],
+    true_value: typing.Union[int, typing.List[str], str, datetime.date, None],
+    self_value: typing.Union[int, typing.List[str], str, datetime.date, BetweenValue, None],
     options: dict = None,
 ) -> bool:
     """Helper function to evaluate the condition based on the true_value, value found on the transaction, and the
@@ -204,7 +219,7 @@ def condition_evaluation(
     elif op == ConditionType.CONTAINS:
         return self_value in true_value
     elif op == ConditionType.MATCHES:
-        return bool(re.match(self_value, true_value, re.IGNORECASE))
+        return bool(re.search(self_value, true_value, re.IGNORECASE))
     elif op == ConditionType.NOT_ONE_OF:
         return true_value not in self_value
     elif op == ConditionType.DOES_NOT_CONTAIN:
@@ -219,31 +234,38 @@ def condition_evaluation(
         return self_value >= true_value
     elif op == ConditionType.IS_BETWEEN:
         return self_value.num_1 <= true_value <= self_value.num_2
+    elif op == ConditionType.HAS_TAGS:
+        # this regex is not correct, but is good enough according to testing
+        # taken from https://stackoverflow.com/a/26740753/12681470
+        tags = re.findall(r"\#[\U00002600-\U000027BF\U0001f300-\U0001f64F\U0001f680-\U0001f6FF\w-]+", self_value)
+        return any(tag in true_value for tag in tags)
     else:
         raise ActualError(f"Operation {op} not supported")
 
 
 class Condition(pydantic.BaseModel):
     """
-    A condition does a single comparison check for a transaction. The 'op' indicates the action type, usually being
-    set to IS or CONTAINS, and the operation applied to a 'field' with certain 'value'. If the transaction value matches
-    the condition, the `run` method returns `True`, otherwise it returns `False`.
+    A condition does a single comparison check for a transaction. The `op` indicates the action type, usually being
+    set to `IS` or `CONTAINS`, and the comparison is applied to a `field` with certain `value`. If the transaction
+    value matches the condition, the `run` method returns `True`, otherwise it returns `False`. The individual condition
+    cannot change the value of the transaction, as only the [Action][actual.rules.Action] can.
 
     **Important**: Actual shows the amount on frontend as decimal but handles it internally as cents. Make sure that, if
-    you provide the 'amount' rule manually, you either provide number of cents or a float that get automatically
-    converted to cents.
+    you provide the `amount` rule manually, you either provide number of cents, as an integers, or a float that get
+    automatically converted to cents. As an example, `50` will be interpreted as 50 cents, but `50.0` will be
+    interpreted as 50 of the currency (or 5000 cents).
 
     The 'field' can be one of the following ('type' will be set automatically):
 
-        - imported_description: 'type' must be 'string' and 'value' any string
-        - acct: 'type' must be 'id' and 'value' a valid uuid
-        - category: 'type' must be 'id' and 'value' a valid uuid
-        - date: 'type' must be 'date' and 'value' a string in the date format '2024-04-11'
-        - description: 'type' must be 'id' and 'value' a valid uuid (means payee_id)
-        - notes: 'type' must be 'string' and 'value' any string
-        - amount: 'type' must be 'number' and format in cents
-        - amount_inflow: 'type' must be 'number' and format in cents, will set "options":{"inflow":true}
-        - amount_outflow: 'type' must be 'number' and format in cents, will set "options":{"outflow":true}
+    - `imported_description`: `type` must be `string` and `value` any string
+    - `acct`: `type` must be `id` and `value` a valid uuid
+    - `category`: `type` must be `id` and `value` a valid uuid
+    - `date`: `type` must be `date` and `value` a string in the date format `'2024-04-11'`
+    - `description`: `type` must be `id` and `value` a valid uuid (means payee_id)
+    - `notes`: `type` must be 'string' and `value` any string
+    - `amount`: `type` must be `number` and format in cents
+    - `amount_inflow`: `type` must be `number` and format in cents, will set `"options":{"inflow":true}`
+    - `amount_outflow`: `type` must be `number` and format in cents, will set `"options":{"outflow":true}`
     """
 
     field: typing.Literal[
@@ -259,7 +281,16 @@ class Condition(pydantic.BaseModel):
     ]
     op: ConditionType
     value: typing.Union[
-        int, float, str, list[str], Schedule, list[BaseModel], BetweenValue, BaseModel, datetime.date, None
+        int,
+        float,
+        str,
+        typing.List[str],
+        Schedule,
+        typing.List[BaseModel],
+        BetweenValue,
+        BaseModel,
+        datetime.date,
+        None,
     ]
     type: typing.Optional[ValueType] = None
     options: typing.Optional[dict] = None
@@ -275,7 +306,7 @@ class Condition(pydantic.BaseModel):
             ret.pop("options", None)
         return ret
 
-    def get_value(self) -> typing.Union[int, datetime.date, list[str], str, None]:
+    def get_value(self) -> typing.Union[int, datetime.date, typing.List[str], str, None]:
         return get_value(self.value, self.type)
 
     @pydantic.validator("value", pre=False, always=True)
@@ -316,24 +347,26 @@ class Condition(pydantic.BaseModel):
 
 class Action(pydantic.BaseModel):
     """
-    An Action does a single column change for a transaction. The 'op' indicates the action type, usually being to SET
-    a 'field' with certain 'value'.
+    An Action does a single column change for a transaction. The `op` indicates the
+    [ActionType][actual.rules.ActionType], usually being to SET a `field` with certain `value`.
 
-    For the 'op' LINKED_SCHEDULE, the operation will link the transaction to a certain schedule id that generated it.
+    For the `op` `LINKED_SCHEDULE`, the operation will link the transaction to a certain schedule id that generated it.
+    This is often done automatically when you create schedules, as they are also rules internally.
 
-    For the 'op' SET_SPLIT_AMOUNT, the transaction will be split into multiple different splits depending on the rules
-    defined by the user, being it on 'fixed-amount', 'fixed-percent' or 'remainder'. The options will then be on the
-    format {"method": "remainder", "splitIndex": 1}
+    For the `op` `SET_SPLIT_AMOUNT`, the transaction will be split into multiple different splits depending on the
+    method defined by the user, being it on `fixed-amount`, `fixed-percent` or `remainder`. The method will be stored
+    under `options` with the format `{"method": "remainder", "splitIndex": 1}`, indicating both the method of splitting
+    but also which index that split will take.
 
-    The 'field' can be one of the following ('type' will be set automatically):
+    The `field` can be one of the following (`type` will be set automatically based on the database):
 
-        - category: 'type' must be 'id' and 'value' a valid uuid
-        - description: 'type' must be 'id' 'value' a valid uuid (additional "options":{"splitIndex":0})
-        - notes: 'type' must be 'string' and 'value' any string
-        - cleared: 'type' must be 'boolean' and value is a literal True/False (additional "options":{"splitIndex":0})
-        - acct: 'type' must be 'id' and 'value' an uuid
-        - date: 'type' must be 'date' and 'value' a string in the date format '2024-04-11'
-        - amount: 'type' must be 'number' and format in cents
+    - `category`: `type` must be `id` and `value` a valid uuid
+    - `description`: `type` must be `id` `value` a valid uuid (additional `"options":{"splitIndex":0}`)
+    - `notes`: `type` must be `string` and `value` any string
+    - `cleared`: `type` must be `boolean` and `value` is a literal True/False (additional `"options":{"splitIndex":0}`)
+    - `acct`: `type` must be `id` and `value` an uuid
+    - `date`: `type` must be `date` and `value` a string in the date format `"2024-04-11"`
+    - `amount`: `type` must be `number` and format in cents
     """
 
     field: typing.Optional[typing.Literal["category", "description", "notes", "cleared", "acct", "date", "amount"]] = (
@@ -342,7 +375,7 @@ class Action(pydantic.BaseModel):
     op: ActionType = pydantic.Field(ActionType.SET, description="Action type to apply (default changes a column).")
     value: typing.Union[str, bool, int, float, pydantic.BaseModel, None]
     type: typing.Optional[ValueType] = None
-    options: dict[str, typing.Union[str, int]] = None
+    options: typing.Dict[str, typing.Union[str, int]] = None
 
     def __str__(self) -> str:
         if self.op in (ActionType.SET, ActionType.LINK_SCHEDULE):
@@ -355,6 +388,12 @@ class Action(pydantic.BaseModel):
             method = self.options.get("method") or ""
             split_index = self.options.get("splitIndex") or ""
             return f"allocate a {method} at Split {split_index}: {self.value}"
+        elif self.op in (ActionType.APPEND_NOTES, ActionType.PREPEND_NOTES):
+            return (
+                f"append to notes '{self.value}'"
+                if self.op == ActionType.APPEND_NOTES
+                else f"prepend to notes '{self.value}'"
+            )
 
     def as_dict(self):
         """Returns valid dict for database insertion."""
@@ -372,20 +411,31 @@ class Action(pydantic.BaseModel):
             v = bool(v)
         return v
 
+
     @pydantic.validator("type", always=True)
     def check_operation_type(cls, v, values, **kwargs):
-        field = values.get("field")
-        op = values.get("op")
-
-        if v is None:
-            if field is not None:
-                v = ValueType.from_field(field)
-            elif op == ActionType.LINK_SCHEDULE:
+        if not v:
+            if values.get("field") is not None:
+                v = ValueType.from_field(values.get("field"))
+            elif values.get("op") == ActionType.LINK_SCHEDULE:
                 v = ValueType.ID
-            elif op == ActionType.SET_SPLIT_AMOUNT:
+            elif values.get("op") == ActionType.SET_SPLIT_AMOUNT:
                 v = ValueType.NUMBER
+        # questionable choice from the developers to set it to ID, I hope they fix it at some point, but we change it
+        if values.get("op") in (ActionType.APPEND_NOTES, ActionType.PREPEND_NOTES):
+            v = ValueType.STRING
+        # if a pydantic object is provided and id is expected, extract the id
+        if isinstance(values.get("value"), pydantic.BaseModel) and hasattr(values.get("value"), "id"):
+            values["value"] = str(values["value"].id)
+        # make sure the data matches the value type
+        if not v.validate(values.get("value")):
+            raise ValueError(f"Value {values.get('value')} is not valid for type {v.name}")
+        return v
+
 
     def run(self, transaction: Transactions) -> None:
+        """Runs the action on the transaction, regardless of the condition. For the condition based rule, see
+        [Rule.run][actual.rules.Rule.run]."""
         if self.op == ActionType.SET:
             attr = get_attribute_by_table_name(Transactions.__tablename__, str(self.field))
             value = get_value(self.value, self.type)
@@ -400,6 +450,16 @@ class Action(pydantic.BaseModel):
                 setattr(transaction, attr, value)
         elif self.op == ActionType.LINK_SCHEDULE:
             transaction.schedule_id = self.value
+        # for the notes rule, check if the rule was already applied since actual does not do that.
+        # this should ensure the prefix or suffix is not applied multiple times
+        elif self.op == ActionType.APPEND_NOTES:
+            notes = transaction.notes or ""
+            if not notes.endswith(self.value):
+                transaction.notes = f"{notes}{self.value}"
+        elif self.op == ActionType.PREPEND_NOTES:
+            notes = transaction.notes or ""
+            if not notes.startswith(self.value):
+                transaction.notes = f"{self.value}{notes}"
         else:
             raise ActualError(f"Operation {self.op} not supported")
 
@@ -414,20 +474,21 @@ class Rule(pydantic.BaseModel):
     automatically.
     """
 
-    conditions: list[Condition] = pydantic.Field(
+    conditions: typing.List[Condition] = pydantic.Field(
         ..., description="List of conditions that need to be met (one or all) in order for the actions to be applied."
     )
     operation: typing.Literal["and", "or"] = pydantic.Field(
         "and", description="Operation to apply for the rule evaluation. If 'all' or 'any' need to be evaluated."
     )
-    actions: list[Action] = pydantic.Field(..., description="List of actions to apply to the transaction.")
+    actions: typing.List[Action] = pydantic.Field(..., description="List of actions to apply to the transaction.")
     stage: typing.Literal["pre", "post", None] = pydantic.Field(
         None, description="Stage in which the rule" "will be evaluated (default None)"
     )
 
     @pydantic.validator("*", pre=True)
-    def correct_operation(cls, value, values):
-        """If the user provides the same 'all' or 'any' that the frontend provides, we fix it silently."""
+    def correct_operation(cls, value):
+        """If the user provides the same `all` or `any` that the frontend provides, we fix it silently to `and` and
+        `or` respectively."""
         if value.get("operation") == "all":
             value["operation"] = "and"
         elif value.get("operation") == "any":
@@ -513,27 +574,34 @@ class Rule(pydantic.BaseModel):
 
 class RuleSet(pydantic.BaseModel):
     """
-    A RuleSet is a collection of Conditions and Actions that will evaluate for one or more transactions.
+    A RuleSet is a collection of [Conditions][actual.rules.Condition] and [Actions][actual.rules.Action] that will
+    evaluate for one or more transactions.
 
-    The conditions are list of rules that will compare fields from the transaction. If all conditions from a RuleEntry
-    are met (or any, if the RuleEntry has an 'or' operation), then the actions will be applied.
+    The [Conditions][actual.rules.Condition] are list of logical comparisons that will compare fields from the
+    transaction to stored values. If all conditions from a Transaction are met (or any, if the Rule has an `or`
+    operation), then the actions will be applied.
 
-    The actions are a list of changes that will be applied to one or more transaction.
+    The actions are a list of changes that will be applied to the transaction.
 
-    Full example ruleset: "If all of these conditions match 'notes' contains 'foo' then set 'notes' to 'bar'"
+    **Full example ruleset**: "If all of these conditions match 'notes' contains 'foo' then set 'notes' to 'bar'"
 
     To create that rule set, you can do:
 
-    >>> RuleSet(rules=[
-    >>>     Rule(
-    >>>         operation="and",
-    >>>         conditions=[Condition(field="notes", op=ConditionType.CONTAINS, value="foo")],
-    >>>         actions=[Action(field="notes", value="bar")],
-    >>>     )
-    >>> ])
+    ```python
+    RuleSet(rules=[
+        Rule(
+            # all of these conditions match
+            operation="and",
+            # 'notes' contains 'foo'
+            conditions=[Condition(field="notes", op=ConditionType.CONTAINS, value="foo")],
+            # set 'notes' to 'bar'
+            actions=[Action(field="notes", value="bar")],
+        )
+    ])
+    ```
     """
 
-    rules: list[Rule]
+    rules: typing.List[Rule] = pydantic.Field(..., description="List of rules to be evaluated on run.")
 
     def __str__(self):
         return "\n".join([str(r) for r in self.rules])
@@ -542,7 +610,9 @@ class RuleSet(pydantic.BaseModel):
         return self.rules.__iter__()
 
     def _run(
-        self, transaction: typing.Union[Transactions, list[Transactions]], stage: typing.Literal["pre", "post", None]
+        self,
+        transaction: typing.Union[Transactions, typing.List[Transactions]],
+        stage: typing.Literal["pre", "post", None],
     ):
         for rule in [r for r in self.rules if r.stage == stage]:
             if isinstance(transaction, list):
@@ -556,8 +626,13 @@ class RuleSet(pydantic.BaseModel):
         transaction: typing.Union[Transactions, typing.Sequence[Transactions]],
         stage: typing.Literal["all", "pre", "post", None] = "all",
     ):
-        """Runs the rules for each and every transaction on the list. If stage is 'all' (default), all rules are run in
-        the order 'pre' -> None -> 'post'. You can provide a value to run only a certain stage of rules."""
+        """
+        Runs the rules for each and every transaction on the list. If stage is 'all' (default), all rules are run in
+        the order `pre` -> `None` -> `post`. You can provide a value to run only a certain stage of rules.
+
+        If necessary, you can also individually select the rules you want to run by initializing a new ruleset from
+        the original one, or select individual rules from, by using the list of rules `RuleSet.rules`.
+        """
         if stage == "all":
             self._run(transaction, "pre")
             self._run(transaction, None)

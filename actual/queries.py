@@ -109,11 +109,11 @@ def match_transaction(
     payee: str | Payees = "",
     amount: decimal.Decimal | float | int = 0,
     imported_id: str | None = None,
-    already_matched: list[Transactions] = None,
+    already_matched: typing.List[Transactions] = None,
 ) -> typing.Optional[Transactions]:
-    """Matches a transaction with another transaction based on the fuzzy matching described at `reconcileTransactions`:
-
-    https://github.com/actualbudget/actual/blob/b192ad955ed222d9aa388fe36557b39868029db4/packages/loot-core/src/server/accounts/sync.ts#L347
+    """Matches a transaction with another transaction based on the fuzzy matching described at
+    [`reconcileTransactions`](
+    https://github.com/actualbudget/actual/blob/b192ad955ed222d9aa388fe36557b39868029db4/packages/loot-core/src/server/accounts/sync.ts#L347)
 
     The matches, from strongest to the weakest are defined as follows:
 
@@ -131,8 +131,8 @@ def match_transaction(
     # if not matched, look 7 days ahead and 7 days back when fuzzy matching
     query = _transactions_base_query(
         s, date - datetime.timedelta(days=7), date + datetime.timedelta(days=8), account=account
-    ).filter(Transactions.amount == amount * 100)
-    results: list[Transactions] = s.exec(query).all()  # noqa
+    ).filter(Transactions.amount == round(amount * 100))
+    results: typing.List[Transactions] = s.exec(query).all()  # noqa
     # filter out the ones that were already matched
     if already_matched:
         matched = {t.id for t in already_matched}
@@ -177,7 +177,7 @@ def create_transaction_from_ids(
         id=str(uuid.uuid4()),
         acct=account_id,
         date=date_int,
-        amount=int(amount * 100),
+        amount=int(round(amount * 100)),
         category_id=category_id,
         payee_id=payee_id,
         notes=notes,
@@ -226,11 +226,16 @@ def create_transaction(
     acct = get_account(s, account)
     if acct is None:
         raise ActualError(f"Account {account} not found")
+    if imported_payee:
+        imported_payee = imported_payee.strip()
+        if not payee:
+            payee = imported_payee
     payee = get_or_create_payee(s, payee)
     if category:
         category_id = get_or_create_category(s, category).id
     else:
         category_id = None
+
     return create_transaction_from_ids(
         s, date, acct.id, payee.id, notes, category_id, amount, imported_id, cleared, imported_payee
     )
@@ -271,7 +276,7 @@ def reconcile_transaction(
     cleared: bool = False,
     imported_payee: str = None,
     update_existing: bool = True,
-    already_matched: list[Transactions] = None,
+    already_matched: typing.List[Transactions] = None,
 ) -> Transactions:
     """Matches the transaction to an existing transaction using fuzzy matching.
 
@@ -564,6 +569,71 @@ def get_or_create_account(s: Session, name: str | Accounts) -> Accounts:
     return account
 
 
+def get_budgets(
+    s: Session, month: datetime.date = None, category: str | Categories = None
+) -> typing.Sequence[ZeroBudgets]:
+    """
+    Returns a list of all available budgets.
+
+    :param s: session from Actual local database.
+    :param month: month to get budgets for, as a date for that month. Use `datetime.date.today()` if you want the budget
+                  for current month
+    :param category: category to filter for the budget. By default, the query looks for all budgets.
+    :return: list of budgets
+    """
+    query = select(ZeroBudgets).options(joinedload(ZeroBudgets.category))
+    if month:
+        month_filter = int(datetime.date.strftime(month, "%Y%m"))
+        query = query.filter(ZeroBudgets.month == month_filter)
+    if category:
+        category = get_category(s, category)
+        if not category:
+            raise ActualError("Category is provided but does not exist.")
+        query = query.filter(ZeroBudgets.category_id == category.id)
+    return s.exec(query).unique().all()
+
+
+def get_budget(s: Session, month: datetime.date, category: str | Categories) -> typing.Optional[ZeroBudgets]:
+    """
+    Gets an existing budget by category name, returns `None` if not found.
+
+    :param s: session from Actual local database.
+    :param month: month to get budgets for, as a date for that month. Use `datetime.date.today()` if you want the budget
+                  for current month.
+    :param category: category to filter for the budget.
+    :return: return budget matching the month and category. If not found, returns `None`.
+    """
+    budgets = get_budgets(s, month, category)
+    return budgets[0] if budgets else None
+
+
+def create_budget(
+    s: Session, month: datetime.date, category: str | Categories, amount: decimal.Decimal | float | int = 0.0
+) -> ZeroBudgets:
+    """
+    Gets an existing budget based on the month and category. If it already exists, the amount will be replaced by
+    the new amount.
+
+    :param s: session from Actual local database.
+    :param month: month to get budgets for, as a date for that month. Use `datetime.date.today()` if you want the budget
+                  for current month.
+    :param category: category to filter for the budget.
+    :param amount: amount for the budget.
+    :return: return budget matching the month and category, and assigns the amount to the budget. If not found, creates
+             a new budget.
+    """
+    budget = get_budget(s, month, category)
+    if budget:
+        budget.set_amount(amount)
+        return budget
+    category = get_category(s, category)
+    budget = ZeroBudgets(id=str(uuid.uuid4()), category_id=category.id)
+    budget.set_date(month)
+    budget.set_amount(amount)
+    s.add(budget)
+    return budget
+
+
 def create_transfer(
     s: Session,
     date: datetime.date,
@@ -620,8 +690,8 @@ def get_ruleset(s: Session) -> RuleSet:
     """
     rule_set = list()
     for rule in get_rules(s):
-        conditions = parse_raw_as(list[Condition], rule.conditions)
-        actions = parse_raw_as(list[Action], rule.actions)
+        conditions = parse_raw_as(typing.List[Condition], rule.conditions)
+        actions = parse_raw_as(typing.List[Action], rule.actions)
         rs = Rule(conditions=conditions, operation=rule.conditions_op, actions=actions, stage=rule.stage)  # noqa
         rule_set.append(rs)
     return RuleSet(rules=rule_set)
