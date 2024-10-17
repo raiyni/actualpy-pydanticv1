@@ -1,6 +1,8 @@
 [![codecov](https://codecov.io/github/bvanelli/actualpy/graph/badge.svg?token=N6V05MY70U)](https://codecov.io/github/bvanelli/actualpy)
 
-# actualpy
+# actualpy - Fork to run on pydanticv1
+This is a temporary fork while Home Assistant uses pydanticv1 (https://github.com/home-assistant/core/issues/99218)
+------
 
 Python API implementation for Actual server.
 
