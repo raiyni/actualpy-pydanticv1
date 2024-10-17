@@ -3,8 +3,9 @@ import datetime
 import decimal
 
 import pytest
+from requests import Session
 
-from actual import Actual
+from actual import Actual, ActualBankSyncError
 from actual.database import Banks
 from actual.queries import create_account
 from tests.conftest import RequestsMock
@@ -54,6 +55,12 @@ response = {
     },
 }
 
+fail_response = {
+    "error_type": "ACCOUNT_NEEDS_ATTENTION",
+    "error_code": "ACCOUNT_NEEDS_ATTENTION",
+    "reason": "The account needs your attention.",
+}
+
 
 def create_accounts(session, protocol: str):
     bank = create_account(session, "Bank")
@@ -70,8 +77,8 @@ def set_mocks(mocker):
     # call for validate
     response_empty = copy.deepcopy(response)
     response_empty["transactions"]["all"] = []
-    mocker.patch("requests.get").return_value = RequestsMock({"status": "ok", "data": {"validated": True}})
-    main_mock = mocker.patch("requests.post")
+    mocker.patch.object(Session, "get").return_value = RequestsMock({"status": "ok", "data": {"validated": True}})
+    main_mock = mocker.patch.object(Session, "post")
     main_mock.side_effect = [
         RequestsMock({"status": "ok", "data": {"configured": True}}),
         RequestsMock({"status": "ok", "data": response}),
@@ -132,11 +139,27 @@ def test_full_bank_sync_go_simplefin(session, set_mocks):
 
 
 def test_bank_sync_unconfigured(mocker, session):
-    mocker.patch("requests.get").return_value = RequestsMock({"status": "ok", "data": {"validated": True}})
-    main_mock = mocker.patch("requests.post")
+    mocker.patch.object(Session, "get").return_value = RequestsMock({"status": "ok", "data": {"validated": True}})
+    main_mock = mocker.patch.object(Session, "post")
     main_mock.return_value = RequestsMock({"status": "ok", "data": {"configured": False}})
 
     with Actual(token="foo") as actual:
         actual._session = session
         create_accounts(session, "simplefin")
         assert actual.run_bank_sync() == []
+
+
+def test_bank_sync_exception(session, mocker):
+    mocker.patch.object(Session, "get").return_value = RequestsMock({"status": "ok", "data": {"validated": True}})
+    main_mock = mocker.patch.object(Session, "post")
+    main_mock.side_effect = [
+        RequestsMock({"status": "ok", "data": {"configured": True}}),
+        RequestsMock({"status": "ok", "data": fail_response}),
+    ]
+    with Actual(token="foo") as actual:
+        actual._session = session
+        create_accounts(session, "simplefin")
+
+        # now try to run the bank sync
+        with pytest.raises(ActualBankSyncError):
+            actual.run_bank_sync()
