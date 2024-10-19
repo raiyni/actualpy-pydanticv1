@@ -23,7 +23,6 @@ from actual.database import (
     Rules,
     Schedules,
     Transactions,
-    ZeroBudgetMonths,
     ZeroBudgets,
 )
 from actual.exceptions import ActualError
