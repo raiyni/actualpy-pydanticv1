@@ -84,7 +84,9 @@ class ActualServer:
         if not password:
             raise AuthorizationError("Trying to login but not password was provided.")
         if method == "password":
-            response = self._requests_session.post(f"{self.api_url}/{Endpoints.LOGIN}", json={"password": password}, verify=self.cert)
+            response = self._requests_session.post(
+                f"{self.api_url}/{Endpoints.LOGIN}", json={"password": password}, verify=self.cert
+            )
         else:
             response = self._requests_session.post(
                 f"{self.api_url}/{Endpoints.LOGIN}",
@@ -140,7 +142,9 @@ class ActualServer:
         return BootstrapInfoDTO(**response.json())
 
     def bootstrap(self, password: str) -> LoginDTO:
-        response = self._requests_session.post(f"{self.api_url}/{Endpoints.BOOTSTRAP}", json={"password": password}, verify=self.cert)
+        response = self._requests_session.post(
+            f"{self.api_url}/{Endpoints.BOOTSTRAP}", json={"password": password}, verify=self.cert
+        )
         response.raise_for_status()
         login_response = LoginDTO(**response.json())
         self._token = login_response.data.token
@@ -164,7 +168,8 @@ class ActualServer:
         if file_id is None:
             raise UnknownFileId("Could not reset the file without a valid 'file_id'")
         request = self._requests_session.post(
-            f"{self.api_url}/{Endpoints.RESET_USER_FILE}", json={"fileId": file_id, "token": self._token}
+            f"{self.api_url}/{Endpoints.RESET_USER_FILE}",
+            json={"fileId": file_id, "token": self._token},
             verify=self.cert,
         )
         request.raise_for_status()
@@ -174,7 +179,9 @@ class ActualServer:
         """Downloads the user file based on the file_id provided. Returns the `bytes` from the response, which is a
         zipped folder of the database `db.sqlite` and the `metadata.json`. If the database is encrypted, the key id
         has to be retrieved additionally using user_get_key()."""
-        db = self._requests_session.get(f"{self.api_url}/{Endpoints.DOWNLOAD_USER_FILE}", headers=self.headers(file_id), verify=self.cert)
+        db = self._requests_session.get(
+            f"{self.api_url}/{Endpoints.DOWNLOAD_USER_FILE}", headers=self.headers(file_id), verify=self.cert
+        )
         db.raise_for_status()
         return db.content
 
@@ -210,8 +217,7 @@ class ActualServer:
     def get_user_file_info(self, file_id: str) -> GetUserFileInfoDTO:
         """Gets the user file information, including the encryption metadata."""
         response = self._requests_session.get(
-            f"{self.api_url}/{Endpoints.GET_USER_FILE_INFO}", headers=self.headers(file_id)
-            verify=self.cert,
+            f"{self.api_url}/{Endpoints.GET_USER_FILE_INFO}", headers=self.headers(file_id), verify=self.cert
         )
         response.raise_for_status()
         return GetUserFileInfoDTO(**response.json())
@@ -229,7 +235,8 @@ class ActualServer:
     def delete_user_file(self, file_id: str):
         """Deletes the user file that is loaded from the remote server."""
         response = self._requests_session.post(
-            f"{self.api_url}/{Endpoints.DELETE_USER_FILE}", json={"fileId": file_id, "token": self._token}
+            f"{self.api_url}/{Endpoints.DELETE_USER_FILE}",
+            json={"fileId": file_id, "token": self._token},
             verify=self.cert,
         )
         return StatusDTO(**response.json())

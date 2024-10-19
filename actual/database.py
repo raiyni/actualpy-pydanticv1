@@ -631,13 +631,6 @@ class ZeroBudgets(BaseModel, table=True):
     id: Optional[str] = Field(default=None, sa_column=Column("id", Text, primary_key=True))
     month: Optional[int] = Field(default=None, sa_column=Column("month", Integer))
     category_id: Optional[str] = Field(default=None, sa_column=Column("category", ForeignKey("categories.id")))
-    category_item: "Categories" = Relationship(
-        back_populates="zero_budgets",
-        sa_relationship_kwargs={
-            "uselist": False,
-            "primaryjoin": "and_(ZeroBudgets.category == Categories.id,Categories.tombstone == 0)",
-        },
-    )
     amount: Optional[int] = Field(default=None, sa_column=Column("amount", Integer, server_default=text("0")))
     carryover: Optional[int] = Field(default=None, sa_column=Column("carryover", Integer, server_default=text("0")))
     goal: Optional[int] = Field(default=None, sa_column=Column("goal", Integer, server_default=text("null")))

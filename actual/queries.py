@@ -470,23 +470,6 @@ def get_accounts(s: Session, name: str = None, include_deleted: bool = False) ->
     return s.exec(query).unique().all()
 
 
-def get_budgets(s: Session) -> typing.Sequence[ZeroBudgets]:
-    """
-    Returns a list of all available ZeroBudgets.
-
-    :param s: session from Actual local database.
-    :return: list of ZeroBudgets
-    """
-    query = select(ZeroBudgets).options(joinedload(ZeroBudgets.category_item))
-    return s.exec(query).unique().all()
-
-
-def get_budget(s: Session, category_name: str) -> typing.Optional[ZeroBudgets]:
-    """Gets an existing budget by name, returns `None` if not found. Deleted budgets are excluded from the search."""
-    query = select(ZeroBudgets).join(Categories).filter(Categories.name == category_name)
-    return s.exec(query).unique().all()
-
-
 def get_payees(s: Session, name: str = None, include_deleted: bool = False) -> typing.Sequence[Payees]:
     """
     Returns a list of all available payees.
