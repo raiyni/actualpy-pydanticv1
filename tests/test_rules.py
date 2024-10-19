@@ -123,7 +123,7 @@ def test_has_tags():
 def test_imported_payee_condition(op, condition_value, value, expected_result):
     t = create_transaction(MagicMock(), datetime.date(2024, 1, 1), "Bank", "", amount=5, imported_payee=value)
     condition = {"field": "imported_description", "type": "imported_payee", "op": op, "value": condition_value}
-    cond = Condition.model_validate(condition)
+    cond = Condition(**condition)
     assert cond.run(t) == expected_result
 
 

@@ -67,8 +67,8 @@ def test_complex_schedules():
 
 
 def test_skip_weekend_after_schedule():
-    s = Schedule.model_validate(
-        {
+    s = Schedule(
+        **{
             "start": "2024-08-14",
             "interval": 1,
             "frequency": "monthly",
@@ -86,8 +86,8 @@ def test_skip_weekend_after_schedule():
 
 
 def test_skip_weekend_before_schedule():
-    s = Schedule.model_validate(
-        {
+    s = Schedule(
+        **{
             "start": "2024-04-10",
             "interval": 1,
             "frequency": "monthly",

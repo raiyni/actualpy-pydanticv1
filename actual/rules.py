@@ -411,7 +411,6 @@ class Action(pydantic.BaseModel):
             v = bool(v)
         return v
 
-
     @pydantic.validator("type", always=True)
     def check_operation_type(cls, v, values, **kwargs):
         if not v:
@@ -431,7 +430,6 @@ class Action(pydantic.BaseModel):
         if not v.validate(values.get("value")):
             raise ValueError(f"Value {values.get('value')} is not valid for type {v.name}")
         return v
-
 
     def run(self, transaction: Transactions) -> None:
         """Runs the action on the transaction, regardless of the condition. For the condition based rule, see
@@ -486,7 +484,8 @@ class Rule(pydantic.BaseModel):
     )
 
     @pydantic.validator("*", pre=True)
-    def correct_operation(cls, value):
+    def correct_operation(cls, v):
+        value = v[0] or v
         """If the user provides the same `all` or `any` that the frontend provides, we fix it silently to `and` and
         `or` respectively."""
         if value.get("operation") == "all":

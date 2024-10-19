@@ -168,8 +168,5 @@ class BankSyncErrorDTO(StatusDTO):
     data: BankSyncErrorData
 
 
-class BankSyncAccountResponseDTO(BaseModel):
-    __root__: Union[BankSyncErrorDTO, BankSyncAccountDTO]
-
-class BankSyncResponseDTO(BaseModel):
-    __root__: Union[BankSyncErrorDTO, BankSyncTransactionResponseDTO]
+BankSyncAccountResponseDTO = Union[BankSyncErrorDTO, BankSyncAccountDTO]
+BankSyncResponseDTO = Union[BankSyncErrorDTO, BankSyncTransactionResponseDTO]

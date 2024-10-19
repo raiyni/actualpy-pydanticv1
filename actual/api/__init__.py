@@ -5,6 +5,7 @@ import json
 from typing import List, Literal
 
 import requests
+from pydantic import parse_obj_as
 
 from actual.api.models import (
     BankSyncAccountResponseDTO,
@@ -54,6 +55,7 @@ class ActualServer:
         self.api_url: str = base_url
         self._token: str | None = token
         self._requests_session: requests.Session = requests.Session()
+        self.cert = None
         if cert is not None:
             self._requests_session.verify = cert
             self.cert = cert
@@ -310,4 +312,4 @@ class ActualServer:
         if requisition_id:
             payload["requisitionId"] = requisition_id
         response = self._requests_session.post(f"{self.api_url}/{endpoint}", json=payload, verify=self.cert)
-        return BankSyncResponseDTO(**response.json())
+        return parse_obj_as(BankSyncResponseDTO, response.json())

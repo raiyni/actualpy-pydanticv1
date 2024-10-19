@@ -60,7 +60,7 @@ class Config(pydantic.BaseModel):
         else:
             with open(config_path, "r") as file:
                 config = yaml.safe_load(file)
-                return cls.model_validate(config)
+                return cls(**config)
 
     def actual(self) -> Actual:
         context = self.default_context
