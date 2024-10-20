@@ -13,9 +13,11 @@ protobuf change message using [actual.database.BaseModel.convert][].
 
 import datetime
 import decimal
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from sqlalchemy import MetaData, Table, engine, event, inspect
+
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import class_mapper, object_session
 from sqlmodel import (
     Boolean,
@@ -27,6 +29,7 @@ from sqlmodel import (
     Integer,
     LargeBinary,
     Relationship,
+    Session,
     SQLModel,
     Text,
     func,
@@ -107,6 +110,15 @@ def get_attribute_by_table_name(table_name: str, column_name: str, reverse: bool
         .get(column_name, None)
     )
 
+def apply_change(
+    session: Session, table: Table, table_id: str, values: Dict[Column, Union[str, int, float, None]]
+) -> None:
+    """This function upserts multiple changes into a table based on the `table_id` as primary key. All the `values`
+    will be inserted as a new row, and if the id already exists, the values will be updated."""
+    insert_stmt = (
+        insert(table).values({"id": table_id, **values}).on_conflict_do_update(index_elements=["id"], set_=values)
+    )
+    session.exec(insert_stmt) 
 
 def strong_reference_session(session):
     @event.listens_for(session, "before_flush")
